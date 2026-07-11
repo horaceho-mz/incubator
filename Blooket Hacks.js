@@ -594,12 +594,48 @@
         const confirm = i.contentWindow.confirm.bind(window);
         i.remove();
 
+        function getFiber(el) {
+            if (!el) return null;
+            const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactContainer$") || k.startsWith("__reactInternalInstance$"));
+            return key ? el[key] : null;
+        }
+
+        function getStateNodeOf(el, check = () => true) {
+            let fiber = getFiber(el);
+            while (fiber) {
+                const sn = fiber.stateNode;
+                if (sn && typeof sn.setState === "function" && check(sn)) return sn;
+                fiber = fiber.return;
+            }
+            return null;
+        }
+
         function getStateNode() {
-            return Object.values(
-                (function react(r = document.querySelector("body>div")) {
-                    return Object.values(r)[1]?.children?.[0]?._owner.stateNode ? r : react(r.querySelector(":scope>div"));
-                })()
-            )[1].children[0]._owner.stateNode;
+            let fiber = null;
+            const queue = [document.querySelector("#app") || document.body];
+            while (queue.length) {
+                const el = queue.shift();
+                if (el === guiWrapper) continue;
+                fiber = getFiber(el);
+                if (fiber) break;
+                queue.push(...el.children);
+            }
+            if (!fiber) throw new Error("State node not found. Make sure you are in an active game before using this cheat.");
+            while (fiber.return) fiber = fiber.return;
+            const isPage = (sn) => sn.game !== undefined || sn.props?.client !== undefined || sn.state?.question !== undefined || sn.state?.stage !== undefined;
+            let fallback = null;
+            const fibers = [fiber];
+            while (fibers.length) {
+                const f = fibers.shift();
+                const sn = f.stateNode;
+                if (sn && typeof sn.setState === "function") {
+                    if (isPage(sn)) return sn;
+                    fallback ||= sn;
+                }
+                for (let c = f.child; c; c = c.sibling) fibers.push(c);
+            }
+            if (fallback) return fallback;
+            throw new Error("State node found but could not extract. DOM structure may have changed.");
         }
 
         const Cheats = {
@@ -630,7 +666,7 @@
                                         }
                                         document.querySelectorAll("[class*='answerContainer']")[ind].click();
                                     } else document.querySelector("[class*='feedback'], [id*='feedback']").firstChild.click();
-                                } else Object.values(document.querySelector("[class*='typingAnswerWrapper']"))[1].children._owner.stateNode.sendAnswer(Question.answers[0]);
+                                } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(Question.answers[0]);
                             }, 50);
                         } else {
                             this.enabled = false;
@@ -739,7 +775,7 @@
                                                     if (yes == contains) return answerContainers[i]?.click?.();
                                                 }
                                                 answerContainers[0].click();
-                                            } else Object.values(document.querySelector("[class*='typingAnswerWrapper']"))[1].children._owner.stateNode.sendAnswer(yes ? question.answers[0] : Math.random().toString(36).substring(2));
+                                            } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(yes ? question.answers[0] : Math.random().toString(36).substring(2));
                                         }
                                     } catch {}
                                 },
@@ -773,7 +809,7 @@
                                 }
                                 document.querySelectorAll("[class*='answerContainer']")[ind].click();
                             } else document.querySelector("[class*='feedback'], [id*='feedback']").firstChild.click();
-                        } else Object.values(document.querySelector("[class*='typingAnswerWrapper']"))[1].children._owner.stateNode.sendAnswer(Question.answers[0]);
+                        } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(Question.answers[0]);
                     },
                 },
                 {
@@ -1767,14 +1803,29 @@
                     name: "Double Enemy XP",
                     description: "Doubles enemy XP drop value",
                     run: function () {
-                        const colliders = getStateNode().game.current.config.sceneConfig.physics.world.colliders._active.filter((x) => x.callbackContext?.toString?.()?.includes?.("dmgCd"));
-                        for (let i = 0; i < colliders.length; i++) {
-                            const enemies = colliders[i].object2;
-                            let _start = enemies.classType.prototype.start;
-                            enemies.classType.prototype.start = function () {
-                                _start.apply(this, arguments);
-                                this.val *= 2;
-                            };
+                        const stateNode = getStateNode();
+                        if (!stateNode?.game?.current) {
+                            alert("Double Enemy XP failed: Game is not active. Make sure you are in an active Monster Brawl game (not the lobby) before using this cheat.");
+                            return;
+                        }
+                        const active = stateNode.game.current.config.sceneConfig.physics.world.colliders._active;
+                        let enemyGroups = [...new Set(active.filter((x) => x.callbackContext?.toString?.()?.includes?.("dmgCd")).map((x) => x.object2))];
+                        if (!enemyGroups.length)
+                            enemyGroups = [...new Set(active.flatMap((x) => [x.object1, x.object2]))].filter((g) => g?.classType?.prototype?.start && g.children?.entries?.some((e) => typeof e.val === "number"));
+                        if (!enemyGroups.length) {
+                            alert("Double Enemy XP failed: No enemy groups found. Wait for enemies to spawn, then run this cheat again.");
+                            return;
+                        }
+                        const patched = new Set();
+                        for (const enemies of enemyGroups) {
+                            if (!patched.has(enemies.classType)) {
+                                patched.add(enemies.classType);
+                                const _start = enemies.classType.prototype.start;
+                                enemies.classType.prototype.start = function () {
+                                    _start.apply(this, arguments);
+                                    this.val *= 2;
+                                };
+                            }
                             enemies.children.entries.forEach((e) => (e.val *= 2));
                         }
                     },
