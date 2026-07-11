@@ -610,7 +610,7 @@
             return null;
         }
 
-        function getStateNode() {
+        function getRootFiber() {
             let fiber = null;
             const queue = [document.querySelector("#app") || document.body];
             while (queue.length) {
@@ -620,22 +620,102 @@
                 if (fiber) break;
                 queue.push(...el.children);
             }
-            if (!fiber) throw new Error("State node not found. Make sure you are in an active game before using this cheat.");
+            if (!fiber) return null;
             while (fiber.return) fiber = fiber.return;
-            const isPage = (sn) => sn.game !== undefined || sn.props?.client !== undefined || sn.state?.question !== undefined || sn.state?.stage !== undefined;
-            let fallback = null;
-            const fibers = [fiber];
+            return fiber;
+        }
+
+        function isPhaserGame(v) {
+            if (!v || typeof v !== "object") return null;
+            const check = (x) => (x && typeof x === "object" && x.config && x.events && x.scene && x.loop ? x : null);
+            return check(v) || check(v.current) || check(v.game) || check(v.current?.game) || null;
+        }
+
+        function getStateNode() {
+            const root = getRootFiber();
+            if (!root) throw new Error("State node not found. Make sure you are in an active game before using this cheat.");
+            const rank = (sn) =>
+                Object.values(sn).some((v) => isPhaserGame(v)) ? 0 : sn.state?.question !== undefined || sn.state?.stage !== undefined ? 1 : sn.props?.client !== undefined ? 2 : 3;
+            let best = null,
+                bestRank = 4;
+            const fibers = [root];
             while (fibers.length) {
                 const f = fibers.shift();
                 const sn = f.stateNode;
                 if (sn && typeof sn.setState === "function") {
-                    if (isPage(sn)) return sn;
-                    fallback ||= sn;
+                    const r = rank(sn);
+                    if (r < bestRank) {
+                        best = sn;
+                        bestRank = r;
+                        if (r === 0) return best;
+                    }
                 }
                 for (let c = f.child; c; c = c.sibling) fibers.push(c);
             }
-            if (fallback) return fallback;
+            if (best) return best;
             throw new Error("State node found but could not extract. DOM structure may have changed.");
+        }
+
+        function getGame() {
+            const root = getRootFiber();
+            if (!root) return null;
+            const fibers = [root];
+            while (fibers.length) {
+                const f = fibers.shift();
+                const sn = f.stateNode;
+                if (sn && typeof sn.setState === "function") {
+                    for (const v of Object.values(sn)) {
+                        const g = isPhaserGame(v);
+                        if (g) return g;
+                    }
+                    const state = sn.state && Object.values(sn.state);
+                    if (state) for (const v of state) {
+                        const g = isPhaserGame(v);
+                        if (g) return g;
+                    }
+                } else if (!sn && typeof f.type === "function" && f.memoizedState) {
+                    // function component: walk the hook chain for a useRef/useState holding the game
+                    let h = f.memoizedState,
+                        guard = 0;
+                    while (h && typeof h === "object" && guard++ < 100) {
+                        const g = isPhaserGame(h.memoizedState);
+                        if (g) return g;
+                        h = h.next;
+                    }
+                }
+                for (let c = f.child; c; c = c.sibling) fibers.push(c);
+            }
+            return null;
+        }
+
+        function requireGame() {
+            const game = getGame();
+            if (!game) {
+                alert("Could not find the Phaser game. Make sure you are in an active round (not the lobby or between rounds) before using this cheat.");
+                throw new Error("Phaser game not found.");
+            }
+            return game;
+        }
+
+        function requireBrawlScene() {
+            const game = requireGame();
+            const scene = game.scene.scenes.find((s) => s.enemyService && s.playerService) || game.scene.getScene?.("main");
+            if (!scene) {
+                alert("Could not find the Monster Brawl scene. Make sure a round has started before using this cheat.");
+                throw new Error("Brawl scene not found.");
+            }
+            return scene;
+        }
+
+        function patchEnemySpawn(enemies, apply) {
+            const proto = enemies.classType.prototype;
+            const _spawn = proto.spawn;
+            proto.spawn = function () {
+                const r = _spawn.apply(this, arguments);
+                apply(this);
+                return r;
+            };
+            enemies.children.entries.forEach((e) => e.active && apply(e));
         }
 
         const Cheats = {
@@ -1753,9 +1833,9 @@
                     name: "Kill Enemies",
                     description: "Kills all the enemies",
                     run: function () {
-                        let stateNode = getStateNode();
-                        stateNode.game.current.config.sceneConfig.enemyQueue.length = 0;
-                        stateNode.game.current.config.sceneConfig.physics.world.bodies.entries.forEach((x) => x?.gameObject?.receiveDamage?.(x.gameObject.hp, 1));
+                        const game = requireGame();
+                        game.config.sceneConfig.enemyQueue.length = 0;
+                        game.config.sceneConfig.physics.world.bodies.entries.forEach((x) => x?.gameObject?.receiveDamage?.(x.gameObject.hp, 1));
                     },
                 },
                 {
@@ -1801,119 +1881,84 @@
             brawl: [
                 {
                     name: "Double Enemy XP",
-                    description: "Doubles enemy XP drop value",
+                    description: "Doubles enemy XP drop value (stacks if this button is clicked again)",
                     run: function () {
-                        const stateNode = getStateNode();
-                        if (!stateNode?.game?.current) {
-                            alert("Double Enemy XP failed: Game is not active. Make sure you are in an active Monster Brawl game (not the lobby) before using this cheat.");
-                            return;
-                        }
-                        const active = stateNode.game.current.config.sceneConfig.physics.world.colliders._active;
-                        let enemyGroups = [...new Set(active.filter((x) => x.callbackContext?.toString?.()?.includes?.("dmgCd")).map((x) => x.object2))];
-                        if (!enemyGroups.length)
-                            enemyGroups = [...new Set(active.flatMap((x) => [x.object1, x.object2]))].filter((g) => g?.classType?.prototype?.start && g.children?.entries?.some((e) => typeof e.val === "number"));
-                        if (!enemyGroups.length) {
-                            alert("Double Enemy XP failed: No enemy groups found. Wait for enemies to spawn, then run this cheat again.");
-                            return;
-                        }
-                        const patched = new Set();
-                        for (const enemies of enemyGroups) {
-                            if (!patched.has(enemies.classType)) {
-                                patched.add(enemies.classType);
-                                const _start = enemies.classType.prototype.start;
-                                enemies.classType.prototype.start = function () {
-                                    _start.apply(this, arguments);
-                                    this.val *= 2;
-                                };
-                            }
-                            enemies.children.entries.forEach((e) => (e.val *= 2));
-                        }
+                        patchEnemySpawn(requireBrawlScene().enemyService.enemies, (e) => (e.val *= 2));
                     },
                 },
                 {
                     name: "Half Enemy Speed",
                     description: "Makes enemies move 2x slower",
                     run: function () {
-                        const colliders = getStateNode().game.current.config.sceneConfig.physics.world.colliders._active.filter((x) => x.callbackContext?.toString?.()?.includes?.("dmgCd"));
-                        for (let i = 0; i < colliders.length; i++) {
-                            const enemies = colliders[i].object2;
-                            let _start = enemies.classType.prototype.start;
-                            enemies.classType.prototype.start = function () {
-                                _start.apply(this, arguments);
-                                this.speed *= 0.5;
-                            };
-                            enemies.children.entries.forEach((e) => (e.speed *= 0.5));
-                        }
+                        patchEnemySpawn(requireBrawlScene().enemyService.enemies, (e) => (e.speed *= 0.5));
                     },
                 },
                 {
                     name: "Instant Kill",
                     description: "Sets all enemies health to 1",
                     run: function () {
-                        const colliders = getStateNode().game.current.config.sceneConfig.physics.world.colliders._active.filter((x) => x.callbackContext?.toString?.()?.includes?.("dmgCd"));
-                        for (let i = 0; i < colliders.length; i++) {
-                            const enemies = colliders[i].object2;
-                            let _start = enemies.classType.prototype.start;
-                            enemies.classType.prototype.start = function () {
-                                _start.apply(this, arguments);
-                                this.hp = 1;
-                            };
-                            enemies.children.entries.forEach((e) => (e.hp = 1));
-                        }
+                        patchEnemySpawn(requireBrawlScene().enemyService.enemies, (e) => (e.hp = 1));
                     },
                 },
                 {
                     name: "Invincibility",
                     description: "Makes you invincible",
                     run: function () {
-                        for (const collider of getStateNode().game.current.config.sceneConfig.physics.world.colliders._active.filter(
-                            (x) => x.callbackContext?.toString().includes("invulnerableTime") || x.callbackContext?.toString().includes("dmgCd")
-                        ))
-                            collider.collideCallback = () => {};
+                        requireBrawlScene().playerService.player.invulnerableTime = Infinity;
                     },
                 },
                 {
                     name: "Kill Enemies",
-                    description: "Kills all current enemies",
+                    description: "Kills all current enemies and drops their XP",
                     run: function () {
-                        getStateNode().game.current.config.sceneConfig.physics.world.bodies.entries.forEach((x) => x?.gameObject?.receiveDamage?.(x.gameObject.hp, 1));
+                        const scene = requireBrawlScene();
+                        scene.enemyService.enemyQueue.length = 0;
+                        scene.enemyService.enemies.children.entries.slice().forEach((e) => {
+                            if (!e.active || e.dying) return;
+                            try {
+                                scene.dropService.xpShards.get()?.spawn(e.x, e.y, e.val);
+                            } catch {}
+                            e.die();
+                        });
                     },
                 },
                 {
                     name: "Magnet",
-                    description: "Pulls all xp towards you",
+                    description: "Permanently pulls all xp towards you",
                     run: function () {
-                        getStateNode()
-                            .game.current.config.sceneConfig.physics.world.colliders._active.find((x) => x.collideCallback?.toString().includes("magnetTime"))
-                            .collideCallback({ active: true }, { active: true, setActive() {}, setVisible() {} });
+                        requireBrawlScene().playerService.player.magnetTime = Infinity;
                     },
                 },
                 {
                     name: "Max Current Abilities",
                     description: "Maxes out all your current abilities",
                     run: function () {
-                        const stateNode = getStateNode();
-                        for (const [ability, level] of Object.entries(stateNode.state.abilities))
-                            for (let i = 0; i < 10 - level; i++) stateNode.game.current.config.sceneConfig.game.events.emit("level up", ability, stateNode.state.abilities[ability]++);
-                        stateNode.setState({
-                            level: (stateNode.game.current.config.sceneConfig.level = [1, 3, 5, 10, 15, 25, 35].sort((a, b) => Math.abs(a - stateNode.state.level) - Math.abs(b - stateNode.state.level))[0] - 1),
-                        });
+                        const abilityService = requireBrawlScene().abilityService;
+                        for (const [ability, level] of Object.entries(abilityService.abilityLevels)) {
+                            const max = (abilityService.abilityStats?.[ability]?.upgrades?.length ?? 8) + 1;
+                            for (let i = level; i < max; i++)
+                                try {
+                                    abilityService.upgradeAbility(ability);
+                                } catch {
+                                    break;
+                                }
+                        }
                     },
                 },
                 {
                     name: "Next Level",
                     description: "Skips to the next level",
                     run: function () {
-                        let stateNode = getStateNode();
-                        let { object1: player, object2: xp } = stateNode.game.current.config.sceneConfig.physics.world.colliders._active.find((x) => x.collideCallback?.toString().includes('emit("xp'));
-                        xp.get().spawn(player.x, player.y, ((e) => (1 === e ? 1 : e < 5 ? 5 : e < 10 ? 10 : e < 20 ? 20 : e < 30 ? 30 : e < 40 ? 40 : e < 50 ? 50 : 100))(stateNode.state.level) - stateNode.xp);
+                        const gameManager = requireBrawlScene().gameManager;
+                        const level = gameManager.getLevel();
+                        for (let i = 0; i < 5000 && gameManager.getLevel() === level; i++) gameManager.addXp(1);
                     },
                 },
                 {
                     name: "Remove Obstacles",
                     description: "Removes all rocks and obstacles",
                     run: function () {
-                        getStateNode().game.current.config.sceneConfig.physics.world.bodies.entries.forEach((body) => {
+                        requireBrawlScene().physics.world.bodies.entries.slice().forEach((body) => {
                             try {
                                 if (body.gameObject.frame.texture.key.includes("obstacle")) body.gameObject.destroy();
                             } catch {}
@@ -1922,9 +1967,11 @@
                 },
                 {
                     name: "Reset Health",
-                    description: "Resets health and gives invincibility for 3 seconds",
+                    description: "Resets your health to full",
                     run: function () {
-                        getStateNode().game.current.events._events.respawn.fn();
+                        const player = requireBrawlScene().playerService.player;
+                        if (typeof player.setHp === "function") player.setHp(100);
+                        else player.hp = 100;
                     },
                 },
             ],
