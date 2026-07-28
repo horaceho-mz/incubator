@@ -94,7 +94,7 @@
                 };--inputColor: ${Settings.data?.theme?.inputColor || "#7a039d"};--contentBackground: ${Settings.data?.theme?.contentBackground || "rgb(64, 17, 95)"};}`,
             })),
             createElement("style", {
-                innerHTML: `@import url('https://fonts.googleapis.com/css?family=Titan+One');@import url('https://fonts.googleapis.com/css?family=Nunito');.alertList::-webkit-scrollbar{display:none;}.alertList{-ms-overflow-style: none;scrollbar-width: none;}.contentWrapper::-webkit-scrollbar{display:none;}.contentWrapper{-ms-overflow-style: none;scrollbar-width: none;}.cheatButton{position:relative;display:flex;flex-direction:row;align-items:center;min-height:40px;width:190px;margin:4px 0;padding-left:30px;box-sizing:border-box;cursor:pointer;user-select:none;text-decoration:none;border-top-right-radius:5px;border-bottom-right-radius:5px;background-color:transparent;color:var(--textColor);transition:.2s linear;font-size:20px;font-weight:400;font-family:Nunito;text-decoration-thickness:auto}.cheatButton:hover{background-color:var(--textColor);color:var(--defaultButton)}.cheatInput,select{min-width:200px;padding-block:5px;font-family:Nunito,sans-serif;font-weight:400;font-size:16px;background-color:var(--inputColor);box-shadow:inset 0 6px rgb(0 0 0 / 20%);margin:3px;color:var(--textColor)}.bigButton:hover{filter:brightness(110%);transform:translateY(-2px)}.bigButton:active{transform:translateY(2px)}.cheatList::-webkit-scrollbar{width:10px}.cheatList::-webkit-scrollbar-track{background:var(--cheatList)}.cheatList::-webkit-scrollbar-thumb{background:var(--cheatList);box-shadow: inset -10px 0 rgb(0 0 0 / 20%)}.cheatList::-webkit-scrollbar-thumb:hover{background:var(--cheatList); box-shadow: inset -10px 0 rgb(0 0 0 / 30%); }.scriptButton:hover{filter:brightness(120%)}.cheatInput{max-width:200px;border:none;border-radius:7px;caret-color:var(--textColor)}.cheatInput::placeholder{color:var(--textColor)}.cheatInput:focus,select:focus{outline:0}.cheatInput::-webkit-inner-spin-button,.cheatInput::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.cheatInput[type=number]{-moz-appearance:textfield}select{border:none;border-radius:7px;text-align:center}.scriptButton{align-items: center; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; margin: 10px; padding: 5px 5px 11px; position: relative; width: 250px; font-family: Nunito, sans-serif; font-weight: 400; color: var(--textColor); box-shadow: inset 0 -6px rgb(0 0 0 / 20%); border-radius: 7px; cursor: pointer; transition: filter .25s;}.tooltip::after {content: "";position: absolute;width: 10px;height: 10px;background-color: inherit;top: -5px;left: 50%;margin-left: -6px;transform: rotate(135deg)}`,
+                innerHTML: `.alertList::-webkit-scrollbar{display:none;}.alertList{-ms-overflow-style: none;scrollbar-width: none;}.contentWrapper::-webkit-scrollbar{display:none;}.contentWrapper{-ms-overflow-style: none;scrollbar-width: none;}.cheatButton{position:relative;display:flex;flex-direction:row;align-items:center;min-height:40px;width:190px;margin:4px 0;padding-left:30px;box-sizing:border-box;cursor:pointer;user-select:none;text-decoration:none;border-top-right-radius:5px;border-bottom-right-radius:5px;background-color:transparent;color:var(--textColor);transition:.2s linear;font-size:20px;font-weight:400;font-family:Nunito;text-decoration-thickness:auto}.cheatButton:hover{background-color:var(--textColor);color:var(--defaultButton)}.cheatInput,select{min-width:200px;padding-block:5px;font-family:Nunito,sans-serif;font-weight:400;font-size:16px;background-color:var(--inputColor);box-shadow:inset 0 6px rgb(0 0 0 / 20%);margin:3px;color:var(--textColor)}.bigButton:hover{filter:brightness(110%);transform:translateY(-2px)}.bigButton:active{transform:translateY(2px)}.cheatList::-webkit-scrollbar{width:10px}.cheatList::-webkit-scrollbar-track{background:var(--cheatList)}.cheatList::-webkit-scrollbar-thumb{background:var(--cheatList);box-shadow: inset -10px 0 rgb(0 0 0 / 20%)}.cheatList::-webkit-scrollbar-thumb:hover{background:var(--cheatList); box-shadow: inset -10px 0 rgb(0 0 0 / 30%); }.scriptButton:hover{filter:brightness(120%)}.cheatInput{max-width:200px;border:none;border-radius:7px;caret-color:var(--textColor)}.cheatInput::placeholder{color:var(--textColor)}.cheatInput:focus,select:focus{outline:0}.cheatInput::-webkit-inner-spin-button,.cheatInput::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.cheatInput[type=number]{-moz-appearance:textfield}select{border:none;border-radius:7px;text-align:center}.scriptButton{align-items: center; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; margin: 10px; padding: 5px 5px 11px; position: relative; width: 250px; font-family: Nunito, sans-serif; font-weight: 400; color: var(--textColor); box-shadow: inset 0 -6px rgb(0 0 0 / 20%); border-radius: 7px; cursor: pointer; transition: filter .25s;}.tooltip::after {content: "";position: absolute;width: 10px;height: 10px;background-color: inherit;top: -5px;left: 50%;margin-left: -6px;transform: rotate(135deg)}`,
             }),
             (gui = createElement(
                 "div",
@@ -589,6 +589,10 @@
 
         let i = document.createElement("iframe");
         document.body.append(i);
+
+
+
+
         const alert = i.contentWindow.alert.bind(window);
         const prompt = i.contentWindow.prompt.bind(window);
         const confirm = i.contentWindow.confirm.bind(window);
@@ -635,7 +639,13 @@
             const root = getRootFiber();
             if (!root) throw new Error("State node not found. Make sure you are in an active game before using this cheat.");
             const rank = (sn) =>
-                Object.values(sn).some((v) => isPhaserGame(v)) ? 0 : sn.state?.question !== undefined || sn.state?.stage !== undefined ? 1 : sn.props?.client !== undefined ? 2 : 3;
+                (sn.state?.question ?? sn.props?.client?.question) !== undefined
+                    ? 0
+                    : sn.state?.stage !== undefined
+                    ? 1
+                    : sn.props?.client !== undefined
+                    ? 2
+                    : 3;
             let best = null,
                 bestRank = 4;
             const fibers = [root];
@@ -731,8 +741,9 @@
                             this.enabled = true;
                             this.data = setInterval(() => {
                                 const stateNode = getStateNode();
-                                const Question = stateNode.state.question || stateNode.props.client.question;
-                                if (stateNode.state.question.qType != "typing") {
+                                const Question = stateNode.state?.question || stateNode.props?.client?.question;
+                                if (!Question) return;
+                                if (Question.qType != "typing") {
                                     if (stateNode.state.stage != "feedback" && !stateNode.state.feedback) {
                                         let ind;
                                         for (ind = 0; ind < Question.answers.length; ind++) {
@@ -744,8 +755,8 @@
                                                 }
                                             if (found) break;
                                         }
-                                        document.querySelectorAll("[class*='answerContainer']")[ind].click();
-                                    } else document.querySelector("[class*='feedback'], [id*='feedback']").firstChild.click();
+                                        document.querySelectorAll("[class*='answerContainer']")[ind]?.click();
+                                    } else document.querySelector("[class*='feedback'], [id*='feedback']")?.firstChild?.click();
                                 } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(Question.answers[0]);
                             }, 50);
                         } else {
@@ -766,7 +777,8 @@
                             this.enabled = true;
                             this.data = setInterval(() => {
                                 const stateNode = getStateNode();
-                                const Question = stateNode.state.question || stateNode.props.client.question;
+                                const Question = stateNode.state?.question || stateNode.props?.client?.question;
+                                if (!Question) return;
                                 let ind = 0;
                                 while (ind < Question.answers.length) {
                                     let found = false;
@@ -797,7 +809,8 @@
                             this.enabled = true;
                             this.data = setInterval(() => {
                                 const stateNode = getStateNode();
-                                const Question = stateNode.state.question || stateNode.props.client.question;
+                                const Question = stateNode.state?.question || stateNode.props?.client?.question;
+                                if (!Question) return;
                                 let ind = 0;
                                 while (ind < Question.answers.length) {
                                     let j = 0;
@@ -874,8 +887,9 @@
                     description: "Click the correct answer for you",
                     run: function () {
                         const stateNode = getStateNode();
-                        const Question = stateNode.state.question || stateNode.props.client.question;
-                        if (stateNode.state.question.qType != "typing") {
+                        const Question = stateNode.state?.question || stateNode.props?.client?.question;
+                        if (!Question) return;
+                        if (Question.qType != "typing") {
                             if (stateNode.state.stage != "feedback" && !stateNode.state.feedback) {
                                 let ind;
                                 for (ind = 0; ind < Question.answers.length; ind++) {
@@ -887,8 +901,8 @@
                                         }
                                     if (found) break;
                                 }
-                                document.querySelectorAll("[class*='answerContainer']")[ind].click();
-                            } else document.querySelector("[class*='feedback'], [id*='feedback']").firstChild.click();
+                                document.querySelectorAll("[class*='answerContainer']")[ind]?.click();
+                            } else document.querySelector("[class*='feedback'], [id*='feedback']")?.firstChild?.click();
                         } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(Question.answers[0]);
                     },
                 },
@@ -897,7 +911,8 @@
                     description: "Colors answers to be red or green highlighting the correct ones",
                     run: function () {
                         const stateNode = getStateNode();
-                        const Question = stateNode.state.question || stateNode.props.client.question;
+                        const Question = stateNode.state?.question || stateNode.props?.client?.question;
+                        if (!Question) return;
                         let ind = 0;
                         while (ind < Question.answers.length) {
                             let found = false;
@@ -1132,7 +1147,8 @@
                     description: "Removes the shadow from correct answers",
                     run: function () {
                         const stateNode = getStateNode();
-                        const Question = stateNode.state.question || stateNode.props.client.question;
+                        const Question = stateNode.state?.question || stateNode.props?.client?.question;
+                        if (!Question) return;
                         let ind = 0;
                         while (ind < Question.answers.length) {
                             let j = 0;
@@ -1687,7 +1703,7 @@
                                     d.style.position = "absolute";
                                     d.style.inset = "0";
                                     d.style.display = "grid";
-                                    d.style.placeItems = "center";
+                                        d.style.placeItems = "center";
                                     d.style.pointerEvents = "none";
                                     container.onclick = () => {
                                         d.remove();
@@ -2214,7 +2230,8 @@
                             this.enabled = true;
                             this.data = setInterval(() => {
                                 let stateNode = getStateNode();
-                                stateNode?.onAnswer?.(true, stateNode.props.client.question.correctAnswers[0]);
+                                const q = stateNode?.state?.question || stateNode?.props?.client?.question;
+                                if (q) stateNode.onAnswer?.(true, q.correctAnswers[0]);
                             }, 50);
                         } else {
                             this.enabled = false;
@@ -2228,7 +2245,8 @@
                     description: "Chooses the correct answer for you",
                     run: function () {
                         let stateNode = getStateNode();
-                        stateNode?.onAnswer?.(true, stateNode.props.client.question.correctAnswers[0]);
+                        const q = stateNode?.state?.question || stateNode?.props?.client?.question;
+                        if (q) stateNode.onAnswer?.(true, q.correctAnswers[0]);
                     },
                 },
             ],
@@ -3443,7 +3461,6 @@
         function close() {
             guiWrapper.remove();
             for (const category in Cheats) for (const cheat of Cheats[category]) if (cheat.enabled) cheat.run();
-            Object.keys(Cheats).forEach((mode) => Cheats[mode].forEach((cheat) => cheat.enabled && (cheat.run(), setCheats(...currentMode))));
             window.removeEventListener("keydown", keydown);
         }
         let last;
