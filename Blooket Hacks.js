@@ -1888,18 +1888,14 @@
                             name: "Round",
                             type: "number",
                         },
-                    ],
-                    run: function (round) {
-                        getStateNode().setState({ round });
-                    },
-                },
+
             ],
             brawl: [
                 {
-                    name: "Double Enemy XP",
-                    description: "Doubles enemy XP drop value (stacks if this button is clicked again)",
+                    name: "10x Enemy XP",
+                    description: "Multiplies enemy XP drop value by 10 (stacks if this button is clicked again)",
                     run: function () {
-                        patchEnemySpawn(requireBrawlScene().enemyService.enemies, (e) => (e.val *= 2));
+                        patchEnemySpawn(requireBrawlScene().enemyService.enemies, (e) => (e.val *= 10));
                     },
                 },
                 {
