@@ -1888,11 +1888,7 @@
                             name: "Round",
                             type: "number",
                         },
-                    ],
-                    run: function (round) {
-                        getStateNode().setState({ round });
-                    },
-                },
+
             ],
             brawl: [
                 {
