@@ -1880,15 +1880,6 @@
                         getStateNode().setState({ health });
                     },
                 },
-                {
-                    name: "Set Round",
-                    description: "Sets the current round",
-                    inputs: [
-                        {
-                            name: "Round",
-                            type: "number",
-                        },
-
             ],
             brawl: [
                 {
