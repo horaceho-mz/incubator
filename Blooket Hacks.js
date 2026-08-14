@@ -614,6 +614,15 @@
             return null;
         }
 
+        function getAnswerEl(ind) {
+            // ind is 1-based. Older builds nested the answer in [class*='answersHolder'] > :nth-child(n) > div,
+            // current ones render [class*='answersWrapper'] > button[class*='answerButton'], so try both
+            const legacy = document.querySelector("[class*='answersHolder'] :nth-child(" + ind + ") > div");
+            if (legacy) return legacy;
+            const button = document.querySelectorAll("[class*='answerContainer'], [class*='answerButton']")[ind - 1];
+            return button?.querySelector("div") ?? button ?? null;
+        }
+
         function getRootFiber() {
             let fiber = null;
             const queue = [document.querySelector("#app") || document.body];
@@ -717,6 +726,36 @@
             return scene;
         }
 
+        function reviveBrawlScene(scene) {
+            // a level-up pauses "main" and waits on the upgrade picker; if that picker never resolves the round
+            // is stuck. Phaser reports paused and sleeping scenes both as "non-running" but they need
+            // different calls, and physics is separate again
+            const status = scene.sys?.settings?.status;
+            let revived = null;
+            if (scene.scene?.isPaused?.() || status === 6) (scene.scene.resume(), (revived = "resumed"));
+            else if (scene.scene?.isSleeping?.() || status === 7) (scene.scene.wake(), (revived = "woken"));
+            if (scene.physics?.world?.isPaused) (scene.physics.resume(), (revived ??= "physics resumed"));
+            // resuming the scene does not undo the input gating the level-up screen puts in place, which leaves
+            // the round running but the player unable to move. Only ever flip a flag that is explicitly off
+            if (scene.input?.enabled === false) {
+                scene.input.enabled = true;
+                revived ??= "input re-enabled";
+            }
+            if (scene.input?.keyboard?.enabled === false) {
+                scene.input.keyboard.enabled = true;
+                revived ??= "keyboard re-enabled";
+            }
+            if (scene.inputService?.enabled === false) {
+                scene.inputService.enabled = true;
+                revived ??= "input service re-enabled";
+            }
+            if (scene.time && scene.time.timeScale === 0) {
+                scene.time.timeScale = 1;
+                revived ??= "time scale restored";
+            }
+            return revived;
+        }
+
         function patchEnemySpawn(enemies, apply) {
             const proto = enemies.classType.prototype;
             const _spawn = proto.spawn;
@@ -755,7 +794,7 @@
                                                 }
                                             if (found) break;
                                         }
-                                        document.querySelectorAll("[class*='answerContainer']")[ind]?.click();
+                                        document.querySelectorAll("[class*='answerContainer'], [class*='answerButton']")[ind]?.click();
                                     } else document.querySelector("[class*='feedback'], [id*='feedback']")?.firstChild?.click();
                                 } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(Question.answers[0]);
                             }, 50);
@@ -788,7 +827,8 @@
                                             break;
                                         }
                                     ind++;
-                                    document.querySelector("[class*='answersHolder'] :nth-child(" + ind + ") > div").style.backgroundColor = found ? "rgb(0, 207, 119)" : "rgb(189, 15, 38)";
+                                    const el = getAnswerEl(ind);
+                                    if (el) el.style.backgroundColor = found ? "rgb(0, 207, 119)" : "rgb(189, 15, 38)";
                                 }
                             }, 50);
                         } else {
@@ -823,7 +863,10 @@
                                         j++;
                                     }
                                     ind++;
-                                    if (found) document.querySelector("[class*='answersHolder'] :nth-child(" + ind + ") > div").style.boxShadow = "unset";
+                                    if (found) {
+                                const el = getAnswerEl(ind);
+                                if (el) el.style.boxShadow = "unset";
+                            }
                                 }
                             }, 50);
                         } else {
@@ -854,7 +897,7 @@
                                     try {
                                         const question = stateNode.state.question || stateNode.props.client.question;
                                         if (stateNode.state.stage == "feedback" || stateNode.state.feedback) return document.querySelector('[class*="feedback"], [id*="feedback"]')?.firstChild?.click?.();
-                                        else if (document.querySelector("[class*='answerContainer']") || document.querySelector("[class*='typingAnswerWrapper']")) {
+                                        else if (document.querySelector("[class*='answerContainer'], [class*='answerButton']") || document.querySelector("[class*='typingAnswerWrapper']")) {
                                             let correct = 0,
                                                 total = 0;
                                             for (let corrects in stateNode.corrects) correct += stateNode.corrects[corrects];
@@ -862,7 +905,7 @@
                                             total += correct;
                                             const yes = total == 0 || Math.abs(correct / (total + 1) - TARGET) >= Math.abs((correct + 1) / (total + 1) - TARGET);
                                             if (stateNode.state.question.qType != "typing") {
-                                                const answerContainers = document.querySelectorAll("[class*='answerContainer']");
+                                                const answerContainers = document.querySelectorAll("[class*='answerContainer'], [class*='answerButton']");
                                                 for (let i = 0; i < answerContainers.length; i++) {
                                                     const contains = question.correctAnswers.includes(question.answers[i]);
                                                     if (yes == contains) return answerContainers[i]?.click?.();
@@ -901,7 +944,7 @@
                                         }
                                     if (found) break;
                                 }
-                                document.querySelectorAll("[class*='answerContainer']")[ind]?.click();
+                                document.querySelectorAll("[class*='answerContainer'], [class*='answerButton']")[ind]?.click();
                             } else document.querySelector("[class*='feedback'], [id*='feedback']")?.firstChild?.click();
                         } else getStateNodeOf(document.querySelector("[class*='typingAnswerWrapper']"), (sn) => typeof sn.sendAnswer == "function")?.sendAnswer(Question.answers[0]);
                     },
@@ -922,7 +965,8 @@
                                     break;
                                 }
                             ind++;
-                            document.querySelector("[class*='answersHolder'] :nth-child(" + ind + ") > div").style.backgroundColor = found ? "rgb(0, 207, 119)" : "rgb(189, 15, 38)";
+                            const el = getAnswerEl(ind);
+                            if (el) el.style.backgroundColor = found ? "rgb(0, 207, 119)" : "rgb(189, 15, 38)";
                         }
                     },
                 },
@@ -1161,7 +1205,10 @@
                                 j++;
                             }
                             ind++;
-                            if (found) document.querySelector("[class*='answersHolder'] :nth-child(" + ind + ") > div").style.boxShadow = "unset";
+                            if (found) {
+                                const el = getAnswerEl(ind);
+                                if (el) el.style.boxShadow = "unset";
+                            }
                         }
                     },
                 },
@@ -1897,6 +1944,28 @@
                     },
                 },
                 {
+                    name: "2x Player Speed",
+                    description: "Doubles your movement speed (stacks if this button is clicked again)",
+                    run: function () {
+                        const player = requireBrawlScene().playerService.player;
+                        const usable = (o, k) => typeof o?.[k] === "number" && isFinite(o[k]) && o[k] > 0;
+                        const named = ["speed", "moveSpeed", "movementSpeed", "maxSpeed"];
+                        let target = null;
+                        for (const holder of [player, player.stats].filter(Boolean)) {
+                            // try the known names first, then fall back to any positive number with "speed" in it
+                            const key = named.find((k) => usable(holder, k)) ?? Object.keys(holder).find((k) => /speed/i.test(k) && usable(holder, k));
+                            if (key) {
+                                target = [holder, key];
+                                break;
+                            }
+                        }
+                        if (!target) return alert("Could not find a speed value on the player. Its property may have been renamed.");
+                        target[0][target[1]] *= 2;
+                        // arcade physics clamps velocity to body.maxSpeed when one is set, which would cancel the boost
+                        if (usable(player.body, "maxSpeed")) player.body.maxSpeed *= 2;
+                    },
+                },
+                {
                     name: "Instant Kill",
                     description: "Sets all enemies health to 1",
                     run: function () {
@@ -1936,45 +2005,101 @@
                     name: "Max Current Abilities",
                     description: "Maxes out all your current abilities",
                     run: function () {
-                        const abilityService = requireBrawlScene().abilityService;
-                        for (const [ability, level] of Object.entries(abilityService.abilityLevels)) {
-                            const max = (abilityService.abilityStats?.[ability]?.upgrades?.length ?? 8) + 1;
-                            for (let i = level; i < max; i++)
+                        const scene = requireBrawlScene();
+                        const abilityService = scene.abilityService;
+                        const levels = abilityService.abilityLevels ?? {};
+                        if (!Object.keys(levels).length) {
+                            reviveBrawlScene(scene); // revive first: a stuck round is why there are no abilities to max
+                            return alert("You have no abilities yet. Unlock one from a level-up first, then run this.");
+                        }
+                        for (const ability of Object.keys(levels)) {
+                            // upgradeAbility increments the level *before* reading its upgrade table, so one call past
+                            // the cap throws with the level already bumped into a range the game has no stats for.
+                            // Let it throw to find the real cap, then undo that half-applied step
+                            for (let i = 0; i < 32; i++) {
+                                const before = levels[ability];
                                 try {
                                     abilityService.upgradeAbility(ability);
                                 } catch {
+                                    levels[ability] = before;
                                     break;
                                 }
+                                if (!(levels[ability] > before)) break; // call did nothing, stop rather than spin
+                            }
                         }
+                        reviveBrawlScene(scene);
+                    },
+                },
+                {
+                    name: "Unfreeze Round",
+                    description: "Resumes the round if a level-up left the game paused and you cannot move",
+                    run: function () {
+                        const scene = requireBrawlScene();
+                        // the level-up screen is a DOM overlay sitting on the canvas, and the game keeps movement
+                        // gated while it is open. Resuming underneath it is what leaves the round running but
+                        // unplayable, so check for it rather than forcing straight through
+                        const canvas = scene.sys?.game?.canvas ?? scene.game?.canvas;
+                        const rect = canvas?.getBoundingClientRect?.();
+                        const onTop = rect?.width ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) : null;
+                        const covered = onTop && onTop !== canvas && !guiWrapper.contains(onTop);
+                        if (covered) {
+                            const what = `${onTop.tagName.toLowerCase()}${onTop.className ? "." + String(onTop.className).split(" ")[0] : ""}`;
+                            const forced = confirm(
+                                `Something is open over the game (${what}).\n\nIf that is a level-up screen, picking an upgrade is the normal way to continue — forcing the round to resume underneath it is what leaves you unable to move.\n\nForce it anyway?`
+                            );
+                            if (!forced) return;
+                        }
+                        const revived = reviveBrawlScene(scene);
+                        if (!revived) alert(`The "${scene.sys?.settings?.key ?? "main"}" scene is already running, so the freeze is not a paused scene. Nothing changed.`);
                     },
                 },
                 {
                     name: "Next Level",
                     description: "Skips to the next level",
                     run: function () {
-                        const gameManager = requireBrawlScene().gameManager;
-                        const level = gameManager.getLevel();
-                        for (let i = 0; i < 5000 && gameManager.getLevel() === level; i++) gameManager.addXp(1);
+                        const scene = requireBrawlScene();
+                        const gameManager = scene.gameManager;
+                        // never pump xp to force a level: a level-up pauses the scene and waits on the upgrade
+                        // picker, so getLevel() cannot change inside a synchronous loop. Every extra addXp just
+                        // queues another level-up against an already-paused scene and wedges the round
+                        if (typeof gameManager.setLevel !== "function") return alert("This build has no gameManager.setLevel, so the level cannot be set safely.");
+                        gameManager.setLevel(gameManager.getLevel() + 1);
+                        reviveBrawlScene(scene); // a no-op unless the level-up paused the round waiting on a picker
                     },
                 },
                 {
                     name: "Remove Obstacles",
                     description: "Removes all rocks and obstacles",
                     run: function () {
-                        requireBrawlScene().physics.world.bodies.entries.slice().forEach((body) => {
-                            try {
-                                if (body.gameObject.frame.texture.key.includes("obstacle")) body.gameObject.destroy();
-                            } catch {}
-                        });
+                        const scene = requireBrawlScene();
+                        const obstacleKey = /obstacle|rock|boulder|stone|tree|stump|log|bush|cactus|crate|barrel|prop/i;
+                        const player = scene.playerService?.player;
+                        const keep = [scene.enemyService?.enemies, scene.dropService?.xpShards];
+                        let removed = 0;
+                        // prefer an obstacle group if the scene exposes one, since it needs no texture guessing
+                        for (const group of [scene.obstacleService?.obstacles, scene.mapService?.obstacles, scene.obstacles])
+                            group?.children?.entries?.slice().forEach((obj) => (obj.destroy(), removed++));
+                        if (!removed)
+                            for (const list of [scene.physics?.world?.bodies, scene.physics?.world?.staticBodies])
+                                list?.entries?.slice().forEach(({ gameObject: obj }) => {
+                                    if (!obj || obj === player || typeof obj.destroy !== "function") return;
+                                    if (keep.some((g) => g?.contains?.(obj))) return;
+                                    const keys = [obj.texture?.key, obj.frame?.texture?.key, obj.frame?.name, obj.name];
+                                    if (!keys.some((k) => typeof k === "string" && obstacleKey.test(k))) return;
+                                    obj.destroy();
+                                    removed++;
+                                });
+                        if (!removed) alert("No obstacles found to remove. The game's obstacle textures may have been renamed.");
                     },
                 },
                 {
-                    name: "Reset Health",
+                    name: "Full Med",
                     description: "Resets your health to full",
                     run: function () {
                         const player = requireBrawlScene().playerService.player;
-                        if (typeof player.setHp === "function") player.setHp(100);
-                        else player.hp = 100;
+                        const max = [player.maxHp, player.maxHP, player.hpMax, player.stats?.maxHp].find((v) => typeof v === "number" && v > 0) ?? 100;
+                        if (typeof player.setHp === "function") player.setHp(max);
+                        else player.hp = max;
                     },
                 },
             ],
