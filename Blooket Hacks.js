@@ -3509,6 +3509,103 @@
             ],
         };
 
+        // Unfreeze Round gets a large square in the top-right of the Monster Brawl panel. setCheats reuses a
+        // cheat's `element` verbatim when one is set, so the element here is a full-width row (order -1 puts it
+        // first) holding the square right-aligned. Absolute positioning would have overlapped the first cheat
+        {
+            const unfreeze = Cheats.brawl.find((cheat) => cheat.name === "Unfreeze Round");
+            if (unfreeze) {
+                let flash;
+                function showReloadFlash() {
+                    flash?.remove(); // restart cleanly when the button is clicked again mid-animation
+                    const icon = createElement("div", {
+                        style: { display: "flex", width: "76px", height: "76px" },
+                        innerHTML: `<svg viewBox="0 0 24 24" width="76" height="76" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`,
+                    });
+                    flash = createElement(
+                        "div",
+                        {
+                            style: {
+                                position: "fixed",
+                                top: "50%",
+                                left: "50%",
+                                transform: "translate(-50%, -50%)",
+                                width: "150px",
+                                height: "150px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background: "black",
+                                borderRadius: "18px",
+                                zIndex: "1000000", // above the cheat menu's 999
+                                pointerEvents: "none", // never steal a click from the game underneath
+                            },
+                        },
+                        icon
+                    );
+                    document.body.append(flash);
+                    icon.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, easing: "ease-in-out" });
+                    const el = flash;
+                    el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], { duration: 1000 }).onfinish = () => {
+                        el.remove();
+                        if (flash === el) flash = null;
+                    };
+                }
+                const square = createElement(
+                    "div",
+                    {
+                        className: "scriptButton", // keeps the hover effect and makes the tooltip handler recognise it
+                        style: {
+                            width: "120px",
+                            height: "120px",
+                            margin: "0",
+                            padding: "0 8px 6px",
+                            textAlign: "center",
+                            lineHeight: "1.2",
+                            fontSize: "19px",
+                            background: "#ef7426", // the same orange as the panel's header tab
+                            color: "black", // overrides the inherited var(--textColor)
+                        },
+                    },
+                    createElement("div", { className: "cheatName", innerHTML: "Unfreeze<br>Round" })
+                );
+                square.dataset.description = unfreeze.description;
+                square.onclick = ({ target }) => {
+                    if (target !== square && !target.classList.contains("cheatName")) return;
+                    showReloadFlash();
+                    unfreeze.run();
+                };
+                unfreeze.element = createElement(
+                    "div",
+                    {
+                        style: {
+                            order: "-1",
+                            width: "100%",
+                            display: "flex",
+                            justifyContent: "flex-end",
+                            padding: "0 10px",
+                            boxSizing: "border-box",
+                        },
+                    },
+                    // hazard-stripe frame, like the base of an emergency stop button. A padded wrapper rather
+                    // than border-image, since border-image ignores the border radius and squares the corners
+                    createElement(
+                        "div",
+                        {
+                            style: {
+                                display: "flex",
+                                padding: "11px",
+                                borderRadius: "12px",
+                                background: "repeating-linear-gradient(45deg, #f5c400 0 12px, #111 12px 24px)",
+                                boxShadow: "0 4px rgb(0 0 0 / 25%), inset 0 0 0 2px rgb(0 0 0 / 35%)",
+                            },
+                        },
+                        square
+                    )
+                );
+            }
+        }
+
         addMode("Global", "https://media.blooket.com/image/upload/v1661496291/Media/uiTest/Games_Played_2.svg", Cheats.global)();
         addMode("Gold Quest", "https://media.blooket.com/image/upload/v1661496292/Media/uiTest/Gold.svg", Cheats.gold);
         addMode("Crypto Hack", "https://media.blooket.com/image/upload/v1661496293/Media/uiTest/CryptoIcon.svg", Cheats.hack);
