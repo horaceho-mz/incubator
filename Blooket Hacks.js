@@ -1377,6 +1377,29 @@
                     },
                 },
                 {
+                    name: "Reset All Players' Gold",
+                    description: "Sets every other player's gold to 0",
+                    run: async function () {
+                        try {
+                            let stateNode = getStateNode();
+                            let controller = stateNode.props?.liveGameController;
+                            if (!controller?._liveApp) return alert("Reset All: not in a live Gold Quest game.");
+                            let me = stateNode.props.client?.name;
+                            if (!me) return alert("Reset All: couldn't read your player name.");
+                            let players = await new Promise((res) => controller.getDatabaseVal("c", (p) => res(p || {})));
+                            let targets = Object.keys(players).filter((n) => n !== me);
+                            if (!targets.length) return alert("Reset All: no other players in the game.");
+                            for (let name of targets) {
+                                controller.setVal({ path: "c/" + me + "/tat", val: name + ":swap:0" });
+                                await new Promise((r) => setTimeout(r, 250));
+                            }
+                            alert("Reset All: set " + targets.length + " player(s) to 0.");
+                        } catch (e) {
+                            alert("Reset All failed: " + e.message);
+                        }
+                    },
+                },
+                {
                     name: "Set Gold",
                     description: "Sets amount of gold",
                     inputs: [
