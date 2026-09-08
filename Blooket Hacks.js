@@ -780,35 +780,146 @@
         // The script is injected into blooket.com and so has no origin of its own to load a file from,
         // so the audio is served from this repo over a CDN instead of being bundled into the script.
         const SHRINE_AUDIO = "https://cdn.jsdelivr.net/gh/horaceho-mz/incubator@main/assets/shrine.m4a";
+        const SHRINE_FADE_MS = 2200;
+        // loud enough to bury the round's own music, which keeps playing underneath the domain
+        const SHRINE_VOLUME = 2.5;
 
+        // Blooket's round music leaves nothing to grab hold of at cast time: the document has no <audio>
+        // elements, there is no global Howler, and muting Phaser's sound manager does not touch it. So rather
+        // than hunt for it, every media element and every AudioContext the page creates is recorded as it
+        // appears, and the domain silences whatever is on those lists. This is installed at load so the
+        // recording is already running by the time a round starts its music.
+        const pageAudio = { media: new Set(), contexts: new Set() };
+        // captured before the constructor below is wrapped, so the cast's own audio never lands in the
+        // registry and can never be silenced along with the game's
+        const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+
+        function watchPageAudio() {
+            const play = HTMLMediaElement.prototype.play;
+            if (!play.__shrineWatched) {
+                // play() rather than the Audio constructor: it catches elements that were never added to the
+                // document, which is the one kind querySelectorAll cannot see
+                const watched = function () {
+                    pageAudio.media.add(this);
+                    return play.apply(this, arguments);
+                };
+                watched.__shrineWatched = true;
+                HTMLMediaElement.prototype.play = watched;
+            }
+            for (const key of ["AudioContext", "webkitAudioContext"]) {
+                const Ctor = window[key];
+                if (typeof Ctor !== "function" || Ctor.__shrineWatched) continue;
+                Ctor.__shrineWatched = true;
+                window[key] = new Proxy(Ctor, {
+                    construct(target, args) {
+                        const ctx = Reflect.construct(target, args);
+                        pageAudio.contexts.add(ctx);
+                        return ctx;
+                    },
+                });
+            }
+        }
+
+        // The round's own music would play under the cast, so it is silenced while the domain is up and put
+        // back exactly as it was found afterwards. Only one cast owns the game's audio at a time: a recast
+        // hands ownership over, and the stale restore that a fade-out has already queued turns into a no-op.
+        let activeAudioRestore = null;
+
+        function silenceGameAudio(scene) {
+            activeAudioRestore?.();
+            const undo = [];
+            // muting the manager rather than the sounds it currently has in flight also covers anything the
+            // game starts partway through the domain
+            for (const mgr of new Set([scene.sound, scene.game?.sound, scene.sys?.game?.sound].filter((m) => m && typeof m.mute === "boolean"))) {
+                try {
+                    const was = mgr.mute;
+                    mgr.mute = true;
+                    undo.push(() => (mgr.mute = was));
+                } catch {}
+            }
+            for (const el of pageAudio.media) {
+                try {
+                    const was = el.muted;
+                    el.muted = true;
+                    undo.push(() => (el.muted = was));
+                } catch {}
+            }
+            // suspending the graph stops everything routed through it, whatever created it. Only contexts
+            // that were actually running are resumed, so one the page had already parked stays parked
+            for (const ctx of pageAudio.contexts) {
+                try {
+                    if (ctx.state !== "running") continue;
+                    ctx.suspend();
+                    undo.push(() => ctx.resume().catch(() => {}));
+                } catch {}
+            }
+            const restore = () => {
+                if (activeAudioRestore !== restore) return; // a later cast owns the game's audio now
+                activeAudioRestore = null;
+                undo.forEach((fn) => {
+                    try {
+                        fn();
+                    } catch {}
+                });
+                undo.length = 0;
+            };
+            activeAudioRestore = restore;
+            return restore;
+        }
+
+        // Blooket serves a Content-Security-Policy of `media-src 'self' https://ac.blooket.com data:
+        // https://media.blooket.com`, so an <audio> element pointed at the CDN is refused outright. The bytes
+        // are fetched and decoded into Web Audio instead, which media-src does not govern.
         function playShrineAudio() {
-            let audio;
+            let ctx, gain;
             try {
-                audio = new Audio(SHRINE_AUDIO);
-                audio.volume = 1;
-                // browsers refuse autoplay unless a real click is still in scope, which the cheat button is
-                audio.play().catch(() => {});
+                ctx = new NativeAudioContext();
+                gain = ctx.createGain();
+                gain.gain.value = SHRINE_VOLUME;
+                // pushing the gain past 1 on its own would clip into distortion, so the boost is squeezed
+                // through a compressor: it pulls the peaks down and leaves the track sitting loud and flat,
+                // which is what drowns the round's own music out
+                const squash = ctx.createDynamicsCompressor();
+                gain.connect(squash);
+                squash.connect(ctx.destination);
             } catch {
                 return null;
             }
-            let fade = null;
+            let source = null;
+            let ending = false;
+            // the context is built while the cheat button's click is still in scope, which is what the
+            // autoplay policy cares about — the fetch that follows can take as long as it likes
+            fetch(SHRINE_AUDIO)
+                .then((r) => r.arrayBuffer())
+                .then((bytes) => ctx.decodeAudioData(bytes))
+                .then((buffer) => {
+                    if (ending) return; // the domain was already dismissed while the file was still loading
+                    source = ctx.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(gain);
+                    source.start();
+                })
+                .catch(() => {});
+            const close = () => {
+                try {
+                    source?.stop();
+                } catch {}
+                ctx.close().catch(() => {});
+            };
             return {
-                // ramp the volume down so the music recedes rather than being cut off
-                fadeOut(ms = 2200) {
-                    if (fade) return;
-                    const step = 50;
-                    const drop = audio.volume / Math.max(ms / step, 1);
-                    fade = setInterval(() => {
-                        audio.volume = Math.max(0, audio.volume - drop);
-                        if (audio.volume <= 0.001) {
-                            clearInterval(fade);
-                            audio.pause();
-                        }
-                    }, step);
+                // ramp the gain down so the music recedes rather than being cut off
+                fadeOut(ms = SHRINE_FADE_MS) {
+                    if (ending) return;
+                    ending = true;
+                    const now = ctx.currentTime;
+                    gain.gain.setValueAtTime(gain.gain.value, now);
+                    gain.gain.linearRampToValueAtTime(0, now + ms / 1000);
+                    setTimeout(close, ms);
                 },
                 stopNow() {
-                    if (fade) clearInterval(fade);
-                    audio.pause();
+                    if (ending) return;
+                    ending = true;
+                    close();
                 },
             };
         }
@@ -969,6 +1080,7 @@
             const cx = player.x;
             const cy = player.y;
             const g = scene.add.graphics().setDepth(1e6);
+            const restoreGameAudio = silenceGameAudio(scene);
             const audio = playShrineAudio();
             const slashes = [];
             let started = null;
@@ -1073,8 +1185,14 @@
                 scene.events.off("destroy", stop);
                 g.destroy();
                 // a recast cuts the old music dead so two copies never overlap; anything else lets it recede
-                if (opts?.immediate) audio?.stopNow();
-                else audio?.fadeOut();
+                if (opts?.immediate) {
+                    audio?.stopNow();
+                    restoreGameAudio();
+                } else {
+                    audio?.fadeOut(SHRINE_FADE_MS);
+                    // the round gets its music back only once ours has finished receding, so the two never overlap
+                    setTimeout(restoreGameAudio, SHRINE_FADE_MS);
+                }
             }
 
             scene.events.on("update", onUpdate);
@@ -4004,6 +4122,9 @@
             };
         }
         window.addEventListener("keydown", keydown);
+        // starts recording the page's audio sources now, long before a domain is ever cast, because the
+        // round's music cannot be found once it is already playing
+        watchPageAudio();
         function close() {
             guiWrapper.remove();
             for (const category in Cheats) for (const cheat of Cheats[category]) if (cheat.enabled) cheat.run();
