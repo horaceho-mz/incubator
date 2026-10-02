@@ -708,6 +708,37 @@
             return null;
         }
 
+        function findHookState(test) {
+            // function components have no setState; useState keeps its value and setter on the hook chain
+            // (memoizedState / queue.dispatch), so find the first state hook whose value passes the test
+            const root = getRootFiber();
+            if (!root) return null;
+            const fibers = [root];
+            while (fibers.length) {
+                const f = fibers.shift();
+                if (!f.stateNode && typeof f.type === "function" && f.memoizedState) {
+                    let h = f.memoizedState,
+                        guard = 0;
+                    while (h && typeof h === "object" && guard++ < 100) {
+                        const v = h.memoizedState;
+                        if (h.queue?.dispatch && v && typeof v === "object" && test(v)) return { state: v, setState: h.queue.dispatch };
+                        h = h.next;
+                    }
+                }
+                for (let c = f.child; c; c = c.sibling) fibers.push(c);
+            }
+            return null;
+        }
+
+        function requireDefense2State() {
+            const found = findHookState((s) => "coins" in s && "health" in s && "towers" in s);
+            if (!found) {
+                alert("Could not find the Tower Defense 2 game state. Make sure a game has started before using this cheat.");
+                throw new Error("Tower Defense 2 state not found.");
+            }
+            return found;
+        }
+
         function requireGame() {
             const game = getGame();
             if (!game) {
@@ -727,7 +758,19 @@
             return scene;
         }
 
-        function reviveBrawlScene(scene) {
+        function requireDefense2Scene() {
+            // the live coins/health are on the "main" scene's gameManager. The React state holding the same
+            // fields is only the starting setup; replacing it restarts the whole Phaser game
+            const game = requireGame();
+            const scene = game.scene.scenes.find((s) => s.gameManager && s.enemyService && s.tempTowerService) || game.scene.getScene?.("main");
+            if (!scene?.gameManager) {
+                alert("Could not find the Tower Defense 2 arena. Make sure the game has started before using this cheat.");
+                throw new Error("Tower Defense 2 scene not found.");
+            }
+            return scene;
+        }
+
+        function reviveScene(scene) {
             // a level-up pauses "main" and waits on the upgrade picker; if that picker never resolves the round
             // is stuck. Phaser reports paused and sleeping scenes both as "non-running" but they need
             // different calls, and physics is separate again
@@ -2336,10 +2379,29 @@
             ],
             defense2: [
                 {
+                    name: "Unfreeze Round",
+                    description: "Resumes the round if the game is paused or stuck, or restarts a blank arena",
+                    run: function () {
+                        const game = requireGame();
+                        // a scene whose create() threw is left at Phaser's CREATING status (4) and draws a blank
+                        // arena. Resuming does nothing for that; only a restart re-runs create()
+                        const stuck = game.scene.scenes.filter((s) => s.sys?.settings?.status === 4);
+                        if (stuck.length) {
+                            const keys = stuck.map((s) => s.sys.settings.key).join(", ");
+                            if (confirm(`The arena crashed while starting (${keys}), which is why it is blank.\n\nRestart it? This re-runs the arena's setup and may reset the round.`)) stuck.forEach((s) => s.scene.restart());
+                            return;
+                        }
+                        // only the arena; waking every scene could wake one the game sleeps on purpose
+                        const revived = reviveScene(requireDefense2Scene());
+                        if (!revived) alert("The arena is not paused or stuck, so this freeze is not one Unfreeze Round can undo. Nothing changed.");
+                    },
+                },
+                {
                     name: "Max Tower Stats",
                     description: "Makes all placed towers overpowered",
                     run: function () {
-                        getStateNode().state.towers.forEach((tower) => {
+                        requireDefense2State().state.towers.forEach((tower) => {
+                            if (!tower?.stats) return;
                             tower.stats.dmg = 1e6;
                             tower.stats.fireRate = 50;
                             tower.stats.ghostDetect = true;
@@ -2354,9 +2416,10 @@
                     name: "Kill Enemies",
                     description: "Kills all the enemies",
                     run: function () {
-                        const game = requireGame();
-                        game.config.sceneConfig.enemyQueue.length = 0;
-                        game.config.sceneConfig.physics.world.bodies.entries.forEach((x) => x?.gameObject?.receiveDamage?.(x.gameObject.hp, 1));
+                        const scene = requireDefense2Scene();
+                        const queue = scene.enemyQueue ?? scene.enemyService?.enemyQueue;
+                        if (Array.isArray(queue)) queue.length = 0;
+                        scene.physics.world.bodies.entries.forEach((x) => x?.gameObject?.receiveDamage?.(x.gameObject.hp, 1));
                     },
                 },
                 {
@@ -2369,7 +2432,12 @@
                         },
                     ],
                     run: function (coins) {
-                        getStateNode().setState({ coins });
+                        // never go through the React state: replacing it restarts the Phaser game and blacks out the
+                        // arena. Prefer the game's own setter so the coin counter on screen follows along
+                        const { gameManager } = requireDefense2Scene();
+                        if (typeof gameManager.setCoins === "function") gameManager.setCoins(coins);
+                        else if (typeof gameManager.addCoins === "function") gameManager.addCoins(coins - gameManager.coins);
+                        else gameManager.coins = coins;
                     },
                 },
                 {
@@ -2382,7 +2450,7 @@
                         },
                     ],
                     run: function (health) {
-                        getStateNode().setState({ health });
+                        alert("Set Health is temporarily disabled while it is being updated for the new Tower Defense 2.");
                     },
                 },
             ],
@@ -2452,7 +2520,7 @@
                         const abilityService = scene.abilityService;
                         const levels = abilityService.abilityLevels ?? {};
                         if (!Object.keys(levels).length) {
-                            reviveBrawlScene(scene); // revive first: a stuck round is why there are no abilities to max
+                            reviveScene(scene); // revive first: a stuck round is why there are no abilities to max
                             return alert("You have no abilities yet. Unlock one from a level-up first, then run this.");
                         }
                         for (const ability of Object.keys(levels)) {
@@ -2470,7 +2538,7 @@
                                 if (!(levels[ability] > before)) break; // call did nothing, stop rather than spin
                             }
                         }
-                        reviveBrawlScene(scene);
+                        reviveScene(scene);
                     },
                 },
                 {
@@ -2492,7 +2560,7 @@
                             );
                             if (!forced) return;
                         }
-                        const revived = reviveBrawlScene(scene);
+                        const revived = reviveScene(scene);
                         if (!revived) alert(`The "${scene.sys?.settings?.key ?? "main"}" scene is already running, so the freeze is not a paused scene. Nothing changed.`);
                     },
                 },
@@ -2507,7 +2575,7 @@
                         // queues another level-up against an already-paused scene and wedges the round
                         if (typeof gameManager.setLevel !== "function") return alert("This build has no gameManager.setLevel, so the level cannot be set safely.");
                         gameManager.setLevel(gameManager.getLevel() + 1);
-                        reviveBrawlScene(scene); // a no-op unless the level-up paused the round waiting on a picker
+                        reviveScene(scene); // a no-op unless the level-up paused the round waiting on a picker
                     },
                 },
                 {
@@ -3964,11 +4032,11 @@
             ],
         };
 
-        // Unfreeze Round gets a large square in the top-right of the Monster Brawl panel. setCheats reuses a
-        // cheat's `element` verbatim when one is set, so the element here is a full-width row (order -1 puts it
-        // first) holding the square right-aligned. Absolute positioning would have overlapped the first cheat
-        {
-            const unfreeze = Cheats.brawl.find((cheat) => cheat.name === "Unfreeze Round");
+        // Unfreeze Round gets a large square in the top-right of the Monster Brawl and Tower Defense 2 panels.
+        // setCheats reuses a cheat's `element` verbatim when one is set, so the element here is a full-width row
+        // (order -1 puts it first) holding the square right-aligned. Absolute positioning would have overlapped the first cheat
+        for (const cheats of [Cheats.brawl, Cheats.defense2]) {
+            const unfreeze = cheats.find((cheat) => cheat.name === "Unfreeze Round");
             if (unfreeze) {
                 let flash;
                 function showReloadFlash() {
@@ -4070,7 +4138,7 @@
             "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+PCFET0NUWVBFIHN2ZyBQVUJMSUMgIi0vL1czQy8vRFREIFNWRyAxLjEvL0VOIiAiaHR0cDovL3d3dy53My5vcmcvR3JhcGhpY3MvU1ZHLzEuMS9EVEQvc3ZnMTEuZHRkIj48c3ZnIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIHZpZXdCb3g9IjAgMCAzMDAgMzAwIiB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zOnNlcmlmPSJodHRwOi8vd3d3LnNlcmlmLmNvbS8iIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6MjsiPjxnIGlkPSJCb2F0Ij48cGF0aCBkPSJNMTcwLjQsNTYuMDU0Yy02OC43ODgsMTAuMTc0IC0xMTUuOTcxLDU2LjkzOCAtMTQ1LjQxMSwxMzMuNzVsMTUuNDY5LDcuNzM0YzMwLjk2MiwtMjguMTc1IDc0LjcwNSwtMzcuNzg3IDEzMi4zMjIsLTI3LjI1bDAsLTE3LjYxMWMtMjUuNjI5LC0yNy45NTIgLTI2Ljk2NiwtNTYuNzcyIDAuNzE0LC04Ni42MjhsLTMuMDk0LC05Ljk5NVoiIHN0eWxlPSJmaWxsOiNmNmUwYmQ7Ii8+PHBhdGggZD0iTTE5OS42NzMsNjAuODEzYzMyLjc4NCw0Mi45ODIgNjUuODIyLDkwLjg4NyA5Ny4zMzcsMTM5LjU4MWwtNi42NjMsMGMtMTIuMDg1LC0zMS4xMTEgLTU3Ljg4MiwtMzkuNjk0IC05MS42MjYsLTI3LjI1YzIyLjUxNCwtMzQuNTc5IDE3Ljc5NiwtNzIuNjczIDAuOTUyLC0xMTIuMzMxWiIgc3R5bGU9ImZpbGw6I2Y2ZTBiZDsiLz48cGF0aCBkPSJNNjkuNDQ4LDE5Ny41MzhjMCwwIC01OS43MDcsLTE1LjI0MyAtNjguMzk4LC0xNy40NjJjLTAuMDc2LC0wLjAxOSAtMC4xNTQsMC4wMiAtMC4xODQsMC4wOTJjLTAuMDMsMC4wNzIgLTAuMDAyLDAuMTU1IDAuMDY1LDAuMTk1YzkuNjgyLDUuNzc1IDkxLjY0Nyw1NC42NTggOTEuNjQ3LDU0LjY1OGwtMjMuMTMsLTM3LjQ4M1oiIHN0eWxlPSJmaWxsOiM4ZDZlNDE7Ii8+PHBhdGggZD0iTTE2NC40NSw0Ny45MDNjMCwtNS4zNTMgNC4zNDYsLTkuNjk4IDkuNjk4LC05LjY5OGwxOS4zOTcsLTBjNS4zNTIsLTAgOS42OTgsNC4zNDUgOS42OTgsOS42OThsLTAsMTU2Ljk1M2MtMCw1LjM1MyAtNC4zNDYsOS42OTggLTkuNjk4LDkuNjk4bC0xOS4zOTcsMGMtNS4zNTIsMCAtOS42OTgsLTQuMzQ1IC05LjY5OCwtOS42OThsMCwtMTU2Ljk1M1oiIHN0eWxlPSJmaWxsOiM3ZjY4NDU7Ii8+PHBhdGggZD0iTTI2My45OTMsMjU2LjEwM2MyMi4xNzEsLTE0LjcxIDM2LjAwNywtMzUuNTE1IDM2LjAwNywtNTguNTY1bC0yMzAuNTUyLDBjMCwyMy43MTMgMTQuNjQzLDQ1LjA1IDM3Ljk0LDU5LjgxOWM5Ljg3NSwtMy43MjkgMjAuMDQxLC0xMS4zMzQgMzAuNDYzLC0yMi4zMzZjMzIuODExLDM1LjQ1NSA2NC4wNjksMzUuOTQzIDkzLjcwOCwwYzYuODM4LDkuNjc3IDE3LjczNiwxNi42NDYgMzIuNDM0LDIxLjA4MloiIHN0eWxlPSJmaWxsOiNiNjkyNWY7Ii8+PC9nPjwvc3ZnPg==",
             Cheats.pirate
         );
-        addMode('<span style="font-size: 16px">Tower Defense 2</span>', [`<img style="width: 30px; margin-right: 5px; rotate: 45deg" src="https://media.blooket.com/image/upload/v1593095354/Media/defense/missile.svg">`], Cheats.defense2);
+        addMode('<span style="font-size: 16px">Tower Defense II</span>', [`<img style="width: 30px; margin-right: 5px; rotate: 45deg" src="https://media.blooket.com/image/upload/v1593095354/Media/defense/missile.svg">`], Cheats.defense2);
         addMode('<span style="font-size: 18px">Monster Brawl</span>', [`<img style="height: 28px; margin-left: 5px; margin-right: 8px" src="https://media.blooket.com/image/upload/v1655233787/Media/survivor/xp/Blue_xp_2.svg">`], Cheats.brawl);
         addMode('<span style="font-size: 17px">Deceptive Dinos</span>', [`<img style="height: 30px; margin-left: 8px; margin-right: 12px" src="https://media.blooket.com/image/upload/v1655161325/Media/survivor/Dog.svg">`], Cheats.dino);
         addMode("Battle Royale", "https://media.blooket.com/image/upload/v1655936179/Media/br/VS_Lightning_Bolt_Bottom.svg", Cheats.royale);
