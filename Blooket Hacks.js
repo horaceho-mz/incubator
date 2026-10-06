@@ -819,6 +819,237 @@
             return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
         }
 
+        function drawHollowPurpleOrb(graphics, x, y, radius, base, edge, core, time) {
+            const pulse = 0.85 + Math.sin(time / 75) * 0.15;
+            graphics.fillStyle(base, 0.14);
+            graphics.fillCircle(x, y, radius * 1.45 * pulse);
+            graphics.fillStyle(base, 0.86);
+            graphics.fillCircle(x, y, radius);
+            graphics.fillStyle(edge, 0.8);
+            graphics.fillCircle(x - radius * 0.18, y - radius * 0.18, radius * 0.64);
+            graphics.fillStyle(core, 0.9);
+            graphics.fillCircle(x - radius * 0.3, y - radius * 0.3, radius * 0.28);
+            graphics.lineStyle(Math.max(2, radius * 0.06), edge, 0.9);
+            graphics.strokeCircle(x, y, radius * 0.9);
+            for (let i = 0; i < 5; i++) {
+                const angle = time / 170 + (Math.PI * 2 * i) / 5;
+                graphics.beginPath();
+                graphics.moveTo(x + Math.cos(angle) * radius * 0.5, y + Math.sin(angle) * radius * 0.5);
+                graphics.lineTo(x + Math.cos(angle + 0.24) * radius * 1.5, y + Math.sin(angle + 0.24) * radius * 1.5);
+                graphics.strokePath();
+            }
+        }
+
+        function drawScratchEnergyOrb(graphics, x, y, radius, base, stripe, accent, time) {
+            const pulse = 0.94 + Math.sin(time / 105) * 0.06;
+            const r = radius * pulse;
+            graphics.fillStyle(base, 0.16);
+            graphics.fillCircle(x, y, r * 1.27);
+            graphics.fillStyle(base, 0.88);
+            graphics.fillCircle(x, y, r);
+            graphics.lineStyle(Math.max(1, r * 0.025), accent, 0.8);
+            graphics.strokeCircle(x, y, r * 0.96);
+
+            for (let band = -3; band <= 3; band++) {
+                const yOffset = band * r * 0.2;
+                const halfWidth = Math.sqrt(Math.max(r * r - yOffset * yOffset, 0)) * 0.9;
+                graphics.lineStyle(Math.max(2, r * 0.09), band % 2 ? stripe : accent, 0.72);
+                graphics.beginPath();
+                for (let point = 0; point <= 8; point++) {
+                    const px = -halfWidth + (halfWidth * 2 * point) / 8;
+                    const py = yOffset + Math.sin(time / 80 + band * 1.7 + point * 1.35) * r * 0.045;
+                    if (point) graphics.lineTo(x + px, y + py);
+                    else graphics.moveTo(x + px, y + py);
+                }
+                graphics.strokePath();
+            }
+
+            for (let ring = 0; ring < 3; ring++) {
+                const rotation = -0.38 + ring * 0.38 + Math.sin(time / 360 + ring) * 0.08;
+                const cos = Math.cos(rotation);
+                const sin = Math.sin(rotation);
+                graphics.lineStyle(Math.max(1, r * 0.024), accent, 0.7);
+                graphics.beginPath();
+                for (let point = 0; point <= 24; point++) {
+                    const angle = (Math.PI * 2 * point) / 24;
+                    const px = Math.cos(angle) * r * (1.08 + ring * 0.08);
+                    const py = Math.sin(angle) * r * (0.48 + ring * 0.08);
+                    const orbitX = x + px * cos - py * sin;
+                    const orbitY = y + px * sin + py * cos;
+                    if (point) graphics.lineTo(orbitX, orbitY);
+                    else graphics.moveTo(orbitX, orbitY);
+                }
+                graphics.strokePath();
+            }
+
+            graphics.fillStyle(accent, 0.8);
+            for (let particle = 0; particle < 10; particle++) {
+                const angle = (Math.PI * 2 * particle) / 10 + time / 260;
+                const distance = r * (1.05 + (particle % 3) * 0.09);
+                graphics.fillCircle(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance, Math.max(1, r * 0.035));
+            }
+        }
+
+        function getDefense2Board(scene) {
+            const view = scene.cameras?.main?.worldView;
+            const width = view?.width || scene.scale?.width || scene.game?.config?.width;
+            const height = view?.height || scene.scale?.height || scene.game?.config?.height;
+            if (!(width > 0 && height > 0)) throw new Error("Tower Defense 2 board dimensions not found.");
+            return { left: view?.x ?? 0, top: view?.y ?? 0, width, height };
+        }
+
+        function getDefense2RowCount(scene) {
+            const grids = [scene.gameManager?.map?.tiles, scene.gameManager?.tiles, scene.mapService?.tiles, scene.mapService?.grid, scene.tempTowerService?.grid];
+            for (const grid of grids)
+                if (Array.isArray(grid) && grid.length >= 3 && grid.every(Array.isArray)) return grid.length;
+            return 7; // the TD2 arena's standard board has seven horizontal placement rows
+        }
+
+        function killDefense2Enemy(enemy) {
+            if (!enemy?.active) return false;
+            if (typeof enemy.receiveDamage === "function") enemy.receiveDamage(Math.max(enemy.hp ?? enemy.health ?? 1, 1), 1);
+            else if (typeof enemy.die === "function") enemy.die();
+            else if (typeof enemy.destroy === "function") {
+                if (typeof enemy.setActive === "function") enemy.setActive(false);
+                else enemy.active = false;
+                enemy.destroy();
+            } else return false;
+            return true;
+        }
+
+        function killHollowPurpleTargets(scene, x, radius, top, bottom, hitEnemies) {
+            const enemies = scene.enemyService?.enemies?.children?.entries;
+            if (!enemies) return;
+            enemies.slice().forEach((enemy) => {
+                if (!enemy?.active || enemy.dying || hitEnemies.has(enemy) || enemy.y < top || enemy.y > bottom || Math.abs(enemy.x - x) > radius) return;
+                if (killDefense2Enemy(enemy)) hitEnemies.add(enemy);
+            });
+        }
+
+        function castHollowPurple(scene, board, rowStart, rowCount, onComplete) {
+            const rowHeight = board.height / rowCount;
+            const top = board.top + rowStart * rowHeight;
+            const bottom = top + rowHeight * 3;
+            const centerY = (top + bottom) / 2;
+            const diameter = Math.max(120, Math.min(bottom - top, board.height * 0.8));
+            const chargeX = board.left + Math.max(diameter * 0.85, board.width * 0.38);
+            const graphics = scene.add.graphics().setDepth(1e6);
+            const hitEnemies = new Set();
+            let started = null;
+            let stopped = false;
+
+            function stop() {
+                if (stopped) return;
+                stopped = true;
+                scene.events.off("update", update);
+                scene.events.off("shutdown", stop);
+                scene.events.off("destroy", stop);
+                graphics.destroy();
+                scene.__hollowPurpleCasts?.delete(cast);
+                onComplete?.();
+            }
+
+            function update(time) {
+                started ??= time;
+                const age = time - started;
+                graphics.clear();
+                if (age < 600) {
+                    const t = age / 600;
+                    const ease = 1 - Math.pow(1 - t, 3);
+                    drawScratchEnergyOrb(graphics, chargeX, centerY - diameter * 1.2 * (1 - ease), diameter * 0.42, 0xe94045, 0xff726d, 0xe3f8ff, time);
+                    drawScratchEnergyOrb(graphics, chargeX, centerY + diameter * 1.2 * (1 - ease), diameter * 0.42, 0x50dbe9, 0x9cf6ff, 0xe7fbff, time + 95);
+                    return;
+                }
+                if (age < 820) {
+                    const t = (age - 600) / 220;
+                    const size = diameter * (0.25 + 0.75 * (1 - Math.pow(1 - t, 3)));
+                    drawHollowPurpleOrb(graphics, chargeX, centerY, size * 0.5, 0x7514d6, 0xf14cff, 0xf9e4ff, time);
+                    return;
+                }
+                const progress = Math.min((age - 820) / 900, 1);
+                const x = chargeX + (board.left + board.width + diameter / 2 - chargeX) * progress;
+                graphics.fillStyle(0x7818ff, 0.2);
+                graphics.fillRect(Math.max(board.left, x - diameter * 0.8), top, diameter * 0.8, bottom - top);
+                drawHollowPurpleOrb(graphics, x, centerY, diameter * 0.5, 0x7514d6, 0xf14cff, 0xf9e4ff, time);
+                killHollowPurpleTargets(scene, x, diameter / 2, top, bottom, hitEnemies);
+                if (progress === 1) stop();
+            }
+
+            const cast = { stop };
+            (scene.__hollowPurpleCasts ??= new Set()).add(cast);
+            scene.events.on("update", update);
+            scene.events.once("shutdown", stop);
+            scene.events.once("destroy", stop);
+            return cast;
+        }
+
+        function targetHollowPurple(scene, onComplete) {
+            scene.__hollowPurpleSelection?.stop();
+            const rowCount = getDefense2RowCount(scene);
+            const overlay = scene.add.graphics().setDepth(1e6);
+            let rowStart = Math.max(0, Math.floor((rowCount - 3) / 2));
+            let stopped = false;
+
+            function pickRows(pointer) {
+                const board = getDefense2Board(scene);
+                const camera = scene.cameras?.main;
+                const worldY = Number.isFinite(pointer?.worldY) ? pointer.worldY : camera?.getWorldPoint(pointer?.x ?? 0, pointer?.y ?? 0).y;
+                if (worldY >= board.top && worldY <= board.top + board.height) rowStart = Math.max(0, Math.min(rowCount - 3, Math.floor((worldY - board.top) / (board.height / rowCount)) - 1));
+                return board;
+            }
+
+            function draw(pointer) {
+                const board = pickRows(pointer);
+                const height = board.height / rowCount;
+                const top = board.top + rowStart * height;
+                overlay.clear();
+                overlay.fillStyle(0xff7a00, 0.3);
+                overlay.fillRect(board.left, top, board.width, height * 3);
+                overlay.lineStyle(4, 0xff9d00, 0.95);
+                overlay.strokeRect(board.left, top, board.width, height * 3);
+                overlay.beginPath();
+                overlay.moveTo(board.left, top + height);
+                overlay.lineTo(board.left + board.width, top + height);
+                overlay.moveTo(board.left, top + height * 2);
+                overlay.lineTo(board.left + board.width, top + height * 2);
+                overlay.strokePath();
+            }
+
+            function stop() {
+                if (stopped) return;
+                stopped = true;
+                scene.input.off("pointerdown", confirm);
+                scene.events.off("update", update);
+                scene.events.off("shutdown", cancel);
+                scene.events.off("destroy", cancel);
+                overlay.destroy();
+                if (scene.__hollowPurpleSelection === selection) scene.__hollowPurpleSelection = null;
+            }
+
+            function cancel() {
+                stop();
+                onComplete?.();
+            }
+
+            function update() {
+                draw(scene.input.activePointer);
+            }
+
+            function confirm(pointer) {
+                const board = pickRows(pointer);
+                stop();
+                castHollowPurple(scene, board, rowStart, rowCount, onComplete);
+            }
+
+            const selection = { stop };
+            scene.__hollowPurpleSelection = selection;
+            draw(scene.input.activePointer);
+            scene.input.on("pointerdown", confirm);
+            scene.events.on("update", update);
+            scene.events.once("shutdown", cancel);
+            scene.events.once("destroy", cancel);
+        }
+
         // The cast's music (assets/shrine.m4a, trimmed to 21s, just past the domain's 20s duration).
         // The script is injected into blooket.com and so has no origin of its own to load a file from,
         // so the audio is served from this repo over a CDN instead of being bundled into the script.
@@ -2413,13 +2644,22 @@
                     },
                 },
                 {
+                    name: "Hollow Purple",
+                    description: "Highlights the three adjacent rows under the cursor; click the arena once to fire Hollow Purple through them",
+                    run: function () {
+                        const scene = requireDefense2Scene();
+                        targetHollowPurple(scene, () => (guiWrapper.style.display = "block"));
+                        guiWrapper.style.display = "none";
+                    },
+                },
+                {
                     name: "Kill Enemies",
                     description: "Kills all the enemies",
                     run: function () {
                         const scene = requireDefense2Scene();
                         const queue = scene.enemyQueue ?? scene.enemyService?.enemyQueue;
                         if (Array.isArray(queue)) queue.length = 0;
-                        scene.physics.world.bodies.entries.forEach((x) => x?.gameObject?.receiveDamage?.(x.gameObject.hp, 1));
+                        scene.enemyService?.enemies?.children?.entries?.slice().forEach(killDefense2Enemy);
                     },
                 },
                 {
@@ -4294,5 +4534,3 @@
         iframe.contentWindow.alert("It seems the GitHub is either blocked or down.\n\nIf it's NOT blocked, join the Discord server for updates\nhttps://discord.gg/jHjGrrdXP6\n(The cheat will still run after this alert)")
     }
 })();
-
-
